@@ -78,6 +78,7 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
       cost: product.costPrice
     };
 
+    // Liberado: permite adicionar o mesmo produto várias vezes
     setSelectedItems(prev => [...prev, newItem]);
   };
 
@@ -92,14 +93,12 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
   const discountVal = parseFloat(formData.discount || '0');
   const freightVal = parseFloat(formData.freight || '0');
   
-  // Lógica de Comissão em Reais para Indicação
   const commissionVal = isReferral 
     ? (parseFloat(formData.fixedCommission) || 0)
     : (formData.saleType === 'Instagram' || formData.saleType === 'Trafego Pago' || formData.saleType === 'Pessoal' 
         ? 0 
         : amountVal * (parseFloat(formData.commissionRate || '0') / 100));
 
-  // Lógica de Investimento para Tráfego Pago
   const adCostVal = isPaidTraffic ? (parseFloat(formData.adCost) || 0) : 0;
   
   const netProfit = amountVal - discountVal - commissionVal - autoCost - freightVal - adCostVal;
@@ -194,11 +193,13 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
                   <select
                     className="w-full px-5 py-3.5 bg-white border-2 border-dashed border-slate-200 text-slate-400 rounded-2xl focus:border-[#920074] outline-none appearance-none font-black text-sm"
                     value=""
-                    onChange={(e) => handleAddItemToKit(e.target.value)}
+                    onChange={(e) => {
+                        if(e.target.value) handleAddItemToKit(e.target.value);
+                    }}
                   >
                     <option value="">+ Adicionar ao combo</option>
                     {inventory.map(item => (
-                      <option key={item.id} value={item.productName} disabled={selectedItems.some(si => si.productName === item.productName)}>
+                      <option key={item.id} value={item.productName}>
                           {item.productName} ({item.quantity} un.)
                       </option>
                     ))}
@@ -268,7 +269,6 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
 
           {/* Seção Dinâmica de Custos Adicionais */}
           <div className="space-y-4">
-             {/* Campos Dinâmicos baseados na Origem */}
              {(isReferral || isPaidTraffic) && (
                <div className="grid grid-cols-2 gap-4 animate-fade-in">
                   <div className="space-y-1.5">
@@ -279,7 +279,7 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
                       </>
                     ) : (
                       <>
-                        <label className="block text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Valor Investido (R$)</label>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Investimento (R$)</label>
                         <input name="adCost" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-amber-50/30 text-slate-900 border border-amber-100 rounded-2xl outline-none font-bold" value={formData.adCost} onChange={handleChange} />
                       </>
                     )}
@@ -291,7 +291,6 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
                </div>
              )}
 
-             {/* Campos Padrão (quando não é indicação ou tráfego pago aparecem em grid, senão desconto fica abaixo) */}
              {(!isReferral && !isPaidTraffic) ? (
                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1.5">
