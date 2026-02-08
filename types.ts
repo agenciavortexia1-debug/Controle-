@@ -1,10 +1,17 @@
 
 export type SaleType = 'Trafego Pago' | 'Indicacao' | 'Instagram' | 'Pessoal';
 
+export interface SaleItem {
+  productName: string;
+  quantity: number;
+  cost: number;
+}
+
 export interface Sale {
   id: string;
   clientName: string;
   productName: string;
+  items?: SaleItem[]; // Detalhes dos itens se for um combo
   amount: number;
   cost?: number; // Total cost for this sale (calculated automatically)
   freight?: number; // Shipping cost

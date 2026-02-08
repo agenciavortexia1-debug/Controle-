@@ -134,7 +134,12 @@ const App: React.FC = () => {
       }
       let chartPass = true;
       if (selectedChartProduct) {
-        chartPass = sale.productName === selectedChartProduct;
+        // Se o filtro do gráfico for "Combos", filtra vendas que são kit
+        if (selectedChartProduct === "Vendas Casadas (Combos)") {
+            chartPass = !!(sale.items && sale.items.length > 0) || sale.productName.startsWith("Combo:");
+        } else {
+            chartPass = sale.productName === selectedChartProduct;
+        }
       }
       let searchPass = true;
       if (searchTerm) {
@@ -200,13 +205,19 @@ const App: React.FC = () => {
       }
       return datePass && typePass;
     });
+
     salesForChart.forEach(sale => {
-      if (!data[sale.productName]) {
-        data[sale.productName] = { amount: 0, count: 0 };
+      // Agrupamento: Se for combo, usa o nome fixo para o gráfico
+      const isCombo = (sale.items && sale.items.length > 0) || sale.productName.startsWith("Combo:");
+      const name = isCombo ? "Vendas Casadas (Combos)" : sale.productName;
+      
+      if (!data[name]) {
+        data[name] = { amount: 0, count: 0 };
       }
-      data[sale.productName].amount += sale.amount;
-      data[sale.productName].count += 1;
+      data[name].amount += sale.amount;
+      data[name].count += 1;
     });
+
     return Object.keys(data)
       .map(name => ({ 
         name, 
@@ -245,10 +256,13 @@ const App: React.FC = () => {
       byModality[type].profit += profit;
       byModality[type].salesCount += 1;
 
-      // Product Profit
-      if (!byProductProfit[sale.productName]) byProductProfit[sale.productName] = { profit: 0, salesCount: 0 };
-      byProductProfit[sale.productName].profit += profit;
-      byProductProfit[sale.productName].salesCount += 1;
+      // Product Profit - Agrupando combos aqui também para consistência
+      const isCombo = (sale.items && sale.items.length > 0) || sale.productName.startsWith("Combo:");
+      const productName = isCombo ? "Vendas Casadas (Combos)" : sale.productName;
+
+      if (!byProductProfit[productName]) byProductProfit[productName] = { profit: 0, salesCount: 0 };
+      byProductProfit[productName].profit += profit;
+      byProductProfit[productName].salesCount += 1;
 
       // Time Series
       const dateObj = new Date(sale.date);
@@ -287,15 +301,27 @@ const App: React.FC = () => {
   }, [filteredSales, kpiPeriod]);
 
   const handleAddSale = async (newSale: Sale) => {
-    setSales(prev => [newSale, ...prev]);
+    // Adiciona venda no Supabase
     await db.addSale(newSale);
-    await db.updateStockQuantity(newSale.productName, -1);
+    
+    // Baixa de estoque
+    if (newSale.items && newSale.items.length > 0) {
+      // Combo/Venda Casada: Baixa cada item individualmente
+      for (const item of newSale.items) {
+        await db.updateStockQuantity(item.productName, -item.quantity);
+      }
+    } else {
+      // Venda Simples
+      await db.updateStockQuantity(newSale.productName, -1);
+    }
+    
     if (convertingLeadId) {
         setLeads(prev => prev.filter(l => l.id !== convertingLeadId));
         await db.deleteLead(convertingLeadId);
         setConvertingLeadId(null);
     }
     loadData();
+    setIsFormOpen(false);
   };
 
   const handleAddInventory = async (item: InventoryItem) => {

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Info } from 'lucide-react';
-import { Sale, SaleType, InventoryItem } from '../types';
+import { X, Info, Package, Trash2, ChevronDown } from 'lucide-react';
+import { Sale, SaleType, InventoryItem, SaleItem } from '../types';
 
 interface SalesFormProps {
   onAddSale: (sale: Sale) => void;
@@ -14,15 +14,19 @@ interface SalesFormProps {
 }
 
 export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, inventory, initialData }) => {
+  const [isKit, setIsKit] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<SaleItem[]>([]);
+  
   const [formData, setFormData] = useState({
     clientName: '',
     productName: '',
     amount: '',
     freight: '',
     commissionRate: '10',
+    fixedCommission: '', // Valor em reais para indicação
     date: new Date().toISOString().split('T')[0],
     saleType: 'Instagram' as SaleType,
-    adCost: '',
+    adCost: '', // Valor investido para Tráfego Pago
     discount: '',
   });
 
@@ -39,14 +43,17 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
   }, [initialData, inventory]);
 
   const autoCost = useMemo(() => {
+    if (isKit) {
+      return selectedItems.reduce((acc, item) => acc + (item.cost * item.quantity), 0);
+    }
     const item = inventory.find(i => i.productName === formData.productName);
     return item ? item.costPrice : 0;
-  }, [formData.productName, inventory]);
+  }, [formData.productName, inventory, isKit, selectedItems]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     
-    if (name === 'productName') {
+    if (name === 'productName' && !isKit) {
       const selectedProduct = inventory.find(p => p.productName === value);
       if (selectedProduct) {
         setFormData(prev => ({
@@ -58,33 +65,62 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
       }
     }
 
-    if (name === 'saleType' && value === 'Pessoal') {
-        setFormData(prev => ({ ...prev, saleType: 'Pessoal', commissionRate: '0' }));
-        return;
-    }
-
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const showCommission = formData.saleType !== 'Trafego Pago' && formData.saleType !== 'Instagram' && formData.saleType !== 'Pessoal';
+  const handleAddItemToKit = (productName: string) => {
+    const product = inventory.find(p => p.productName === productName);
+    if (!product) return;
+
+    const newItem: SaleItem = {
+      productName: product.productName,
+      quantity: 1,
+      cost: product.costPrice
+    };
+
+    setSelectedItems(prev => [...prev, newItem]);
+  };
+
+  const handleRemoveItemFromKit = (index: number) => {
+    setSelectedItems(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const isReferral = formData.saleType === 'Indicacao';
+  const isPaidTraffic = formData.saleType === 'Trafego Pago';
+  
+  const amountVal = parseFloat(formData.amount || '0');
+  const discountVal = parseFloat(formData.discount || '0');
+  const freightVal = parseFloat(formData.freight || '0');
+  
+  // Lógica de Comissão em Reais para Indicação
+  const commissionVal = isReferral 
+    ? (parseFloat(formData.fixedCommission) || 0)
+    : (formData.saleType === 'Instagram' || formData.saleType === 'Trafego Pago' || formData.saleType === 'Pessoal' 
+        ? 0 
+        : amountVal * (parseFloat(formData.commissionRate || '0') / 100));
+
+  // Lógica de Investimento para Tráfego Pago
+  const adCostVal = isPaidTraffic ? (parseFloat(formData.adCost) || 0) : 0;
+  
+  const netProfit = amountVal - discountVal - commissionVal - autoCost - freightVal - adCostVal;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const amountVal = parseFloat(formData.amount) || 0;
-    const freightVal = parseFloat(formData.freight) || 0;
-    const discountVal = parseFloat(formData.discount) || 0;
-    const rateVal = showCommission ? parseFloat(formData.commissionRate) : 0;
-    const adCostVal = formData.saleType === 'Trafego Pago' ? (parseFloat(formData.adCost) || 0) : 0;
     
+    const finalProductName = isKit 
+      ? `Combo: ${selectedItems.map(i => i.productName).join(' + ')}`
+      : formData.productName;
+
     const newSale: Sale = {
       id: crypto.randomUUID(),
       clientName: formData.clientName,
-      productName: formData.productName,
+      productName: finalProductName,
+      items: isKit ? selectedItems : undefined,
       amount: amountVal,
       cost: autoCost,
       freight: freightVal,
-      commissionRate: rateVal,
-      commissionValue: amountVal * (rateVal / 100),
+      commissionRate: isReferral ? 0 : (isPaidTraffic || formData.saleType === 'Instagram' || formData.saleType === 'Pessoal' ? 0 : parseFloat(formData.commissionRate)),
+      commissionValue: commissionVal,
       date: formData.date,
       status: 'Pending',
       saleType: formData.saleType,
@@ -92,128 +128,210 @@ export const SalesForm: React.FC<SalesFormProps> = ({ onAddSale, onClose, invent
       discount: discountVal,
     };
 
+    if (isKit && selectedItems.length === 0) {
+      alert("Por favor, adicione pelo menos um item ao combo.");
+      return;
+    }
+
     onAddSale(newSale);
     onClose();
   };
 
-  const amountVal = parseFloat(formData.amount || '0');
-  const commissionVal = showCommission ? amountVal * (parseFloat(formData.commissionRate || '0') / 100) : 0;
-  const freightVal = parseFloat(formData.freight || '0');
-  const discountVal = parseFloat(formData.discount || '0');
-  const adCostVal = formData.saleType === 'Trafego Pago' ? (parseFloat(formData.adCost || '0')) : 0;
-  const netProfit = amountVal - discountVal - commissionVal - autoCost - freightVal - adCostVal;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-end sm:items-center justify-center z-50 sm:p-4">
-      <div className="bg-white w-full h-[95vh] sm:h-auto sm:max-w-md rounded-t-2xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-slide-up">
-        <div className="flex justify-between items-center p-6 border-b border-gray-100">
-          <h2 className="text-xl font-bold text-gray-800">Registrar Venda</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-            <X size={24} />
+    <div className="fixed inset-0 bg-black bg-opacity-40 backdrop-blur-[2px] flex items-end sm:items-center justify-center z-50 sm:p-4">
+      <div className="bg-white w-full h-[95vh] sm:h-auto sm:max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-slide-up">
+        {/* Header */}
+        <div className="flex justify-between items-center px-8 py-6 border-b border-gray-50">
+          <h2 className="text-2xl font-black text-slate-800">Registrar Venda</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition p-1">
+            <X size={24} strokeWidth={2.5} />
           </button>
         </div>
         
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Cliente</label>
+        <form onSubmit={handleSubmit} className="px-8 py-6 space-y-5 overflow-y-auto flex-1 no-scrollbar">
+          
+          {/* Combo Toggle */}
+          <div className="bg-slate-50/80 p-4 rounded-2xl flex items-center justify-between border border-slate-100">
+             <div className="flex items-center gap-3">
+                <div className="bg-purple-100 p-2.5 rounded-xl text-[#920074]">
+                  <Package size={20} />
+                </div>
+                <div>
+                   <p className="text-[13px] font-black text-slate-700">Venda Casada (Combo)?</p>
+                   <p className="text-[11px] text-slate-400 font-bold uppercase tracking-tight">Selecione múltiplos produtos</p>
+                </div>
+             </div>
+             <button 
+               type="button"
+               onClick={() => setIsKit(!isKit)}
+               className={`w-12 h-6 rounded-full transition-all duration-300 relative ${isKit ? 'bg-[#920074]' : 'bg-slate-300'}`}
+             >
+                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${isKit ? 'left-7' : 'left-1'}`}></div>
+             </button>
+          </div>
+
+          {/* Cliente */}
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Cliente</label>
             <input
               required
               name="clientName"
-              placeholder="Nome do cliente"
-              className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#920074] outline-none"
+              className="w-full px-5 py-3.5 bg-slate-50/50 text-slate-900 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-[#920074] focus:border-transparent outline-none font-bold"
               value={formData.clientName}
               onChange={handleChange}
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Produto em Estoque</label>
-            <select
-              required
-              name="productName"
-              className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#920074] outline-none appearance-none"
-              value={formData.productName}
-              onChange={handleChange}
-            >
-              <option value="" disabled>Selecione um produto</option>
-              {inventory.map(item => (
-                <option key={item.id} value={item.productName}>
-                    {item.productName} ({item.quantity} un. em estoque)
-                </option>
-              ))}
-            </select>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Data</label>
-                <input required name="date" type="date" className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl outline-none" value={formData.date} onChange={handleChange} />
-            </div>
-             <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Origem</label>
-                <select name="saleType" className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl outline-none" value={formData.saleType} onChange={handleChange}>
-                    <option value="Instagram">Instagram</option>
-                    <option value="Indicacao">Indicação</option>
-                    <option value="Trafego Pago">Tráfego Pago</option>
-                    <option value="Pessoal">Venda Pessoal</option>
+          {/* Itens / Produto */}
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">
+              {isKit ? 'Itens do Combo' : 'Produto em Estoque'}
+            </label>
+            
+            {isKit ? (
+              <div className="space-y-3">
+                <div className="relative">
+                  <select
+                    className="w-full px-5 py-3.5 bg-white border-2 border-dashed border-slate-200 text-slate-400 rounded-2xl focus:border-[#920074] outline-none appearance-none font-black text-sm"
+                    value=""
+                    onChange={(e) => handleAddItemToKit(e.target.value)}
+                  >
+                    <option value="">+ Adicionar ao combo</option>
+                    {inventory.map(item => (
+                      <option key={item.id} value={item.productName} disabled={selectedItems.some(si => si.productName === item.productName)}>
+                          {item.productName} ({item.quantity} un.)
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+                
+                {selectedItems.length > 0 && (
+                  <div className="space-y-2 animate-fade-in">
+                    {selectedItems.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between bg-purple-50/50 p-3 rounded-xl border border-purple-100">
+                        <span className="text-xs font-black text-slate-700">{item.productName}</span>
+                        <button type="button" onClick={() => handleRemoveItemFromKit(index)} className="text-red-400 hover:text-red-600 transition">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="relative">
+                <select
+                  required
+                  name="productName"
+                  className="w-full px-5 py-3.5 bg-slate-50/50 text-slate-900 border border-slate-100 rounded-2xl focus:ring-2 focus:ring-[#920074] outline-none appearance-none font-bold"
+                  value={formData.productName}
+                  onChange={handleChange}
+                >
+                  <option value="" disabled></option>
+                  {inventory.map(item => (
+                    <option key={item.id} value={item.productName}>
+                        {item.productName} ({item.quantity} un.)
+                    </option>
+                  ))}
                 </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Valor Venda (R$)</label>
-              <input required name="amount" type="number" step="0.01" className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl outline-none" value={formData.amount} onChange={handleChange} />
-            </div>
-            {showCommission && (
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Comissão (%)</label>
-                <input required name="commissionRate" type="number" step="0.1" className="w-full px-4 py-3 bg-gray-50 text-gray-900 border border-gray-200 rounded-xl outline-none" value={formData.commissionRate} onChange={handleChange} />
+                <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               </div>
             )}
           </div>
-
+          
+          {/* Data e Origem */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Desconto (R$)</label>
-              <input name="discount" type="number" step="0.01" placeholder="0.00" className="w-full px-4 py-3 bg-red-50 text-gray-900 border border-red-100 rounded-xl outline-none" value={formData.discount} onChange={handleChange} />
+            <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Data</label>
+                <input required name="date" type="date" className="w-full px-5 py-3.5 bg-slate-50/50 text-slate-900 border border-slate-100 rounded-2xl outline-none font-bold" value={formData.date} onChange={handleChange} />
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Frete (R$)</label>
-              <input name="freight" type="number" step="0.01" placeholder="0.00" className="w-full px-4 py-3 bg-blue-50 text-gray-900 border border-blue-100 rounded-xl outline-none" value={formData.freight} onChange={handleChange} />
+             <div className="space-y-1.5">
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Origem</label>
+                <div className="relative">
+                  <select name="saleType" className="w-full px-5 py-3.5 bg-slate-50/50 text-slate-900 border border-slate-100 rounded-2xl outline-none font-bold appearance-none" value={formData.saleType} onChange={handleChange}>
+                      <option value="Instagram">Instagram</option>
+                      <option value="Indicacao">Indicação</option>
+                      <option value="Trafego Pago">Tráfego Pago</option>
+                      <option value="Pessoal">Venda Pessoal</option>
+                  </select>
+                  <ChevronDown size={18} className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
             </div>
           </div>
 
-          {formData.saleType === 'Trafego Pago' && (
-            <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-1">Custo Ads</label>
-                <input name="adCost" type="number" step="0.01" className="w-full px-4 py-3 bg-purple-50 text-gray-900 border border-purple-100 rounded-xl outline-none" value={formData.adCost} onChange={handleChange} />
-            </div>
-          )}
+          {/* Valor Venda */}
+          <div className="space-y-1.5">
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Valor Venda (R$)</label>
+            <input required name="amount" type="number" step="0.01" className="w-full px-5 py-3.5 bg-slate-50/50 text-slate-900 border border-slate-100 rounded-2xl outline-none font-black text-lg" value={formData.amount} onChange={handleChange} />
+          </div>
 
-          <div className="bg-[#fdf4fa] p-4 rounded-xl space-y-2 border border-[#f5d0ed]">
-             <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase">
-                <Info size={14} /> Detalhamento de Lucro
-             </div>
-             <div className="flex justify-between text-sm text-gray-600">
-                <span>Custo Unitário do Produto:</span>
-                <span className="font-bold">{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(autoCost)}</span>
-             </div>
-             {freightVal > 0 && (
-                <div className="flex justify-between text-sm text-gray-600">
-                    <span>Frete:</span>
-                    <span className="font-bold text-red-400">-{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(freightVal)}</span>
-                </div>
+          {/* Seção Dinâmica de Custos Adicionais */}
+          <div className="space-y-4">
+             {/* Campos Dinâmicos baseados na Origem */}
+             {(isReferral || isPaidTraffic) && (
+               <div className="grid grid-cols-2 gap-4 animate-fade-in">
+                  <div className="space-y-1.5">
+                    {isReferral ? (
+                      <>
+                        <label className="block text-[10px] font-black text-[#920074] uppercase tracking-widest ml-1">Comissão (R$)</label>
+                        <input name="fixedCommission" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-purple-50/30 text-slate-900 border border-purple-100 rounded-2xl outline-none font-bold" value={formData.fixedCommission} onChange={handleChange} />
+                      </>
+                    ) : (
+                      <>
+                        <label className="block text-[10px] font-black text-amber-600 uppercase tracking-widest ml-1">Valor Investido (R$)</label>
+                        <input name="adCost" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-amber-50/30 text-slate-900 border border-amber-100 rounded-2xl outline-none font-bold" value={formData.adCost} onChange={handleChange} />
+                      </>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">Frete (R$)</label>
+                    <input name="freight" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-blue-50/30 text-slate-900 border border-blue-100 rounded-2xl outline-none font-bold" value={formData.freight} onChange={handleChange} />
+                  </div>
+               </div>
              )}
-             <div className="flex justify-between border-t border-purple-100 pt-2 text-lg font-black">
-                <span className="text-gray-800">Lucro Líquido:</span>
-                <span className={netProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+
+             {/* Campos Padrão (quando não é indicação ou tráfego pago aparecem em grid, senão desconto fica abaixo) */}
+             {(!isReferral && !isPaidTraffic) ? (
+               <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-black text-red-400 uppercase tracking-widest ml-1">Desconto (R$)</label>
+                    <input name="discount" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-red-50/30 text-slate-900 border border-red-100 rounded-2xl outline-none font-bold" value={formData.discount} onChange={handleChange} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-black text-blue-400 uppercase tracking-widest ml-1">Frete (R$)</label>
+                    <input name="freight" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-blue-50/30 text-slate-900 border border-blue-100 rounded-2xl outline-none font-bold" value={formData.freight} onChange={handleChange} />
+                  </div>
+               </div>
+             ) : (
+               <div className="animate-fade-in">
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] font-black text-red-400 uppercase tracking-widest ml-1">Desconto (R$)</label>
+                    <input name="discount" type="number" step="0.01" placeholder="0.00" className="w-full px-5 py-3.5 bg-red-50/30 text-slate-900 border border-red-100 rounded-2xl outline-none font-bold" value={formData.discount} onChange={handleChange} />
+                  </div>
+               </div>
+             )}
+          </div>
+
+          {/* Detalhamento de Lucro */}
+          <div className="bg-[#fdf4fa] p-5 rounded-[28px] space-y-3.5 border border-[#f5d0ed]">
+             <div className="flex items-center justify-between text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                <div className="flex items-center gap-2">DETALHAMENTO DE LUCRO</div>
+                <Info size={16} />
+             </div>
+             <div className="flex justify-between text-sm font-black text-slate-600">
+                <span>Custo Unitário do Produto:</span>
+                <span>{new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(autoCost)}</span>
+             </div>
+             <div className="flex justify-between border-t border-purple-100 pt-3.5 items-center">
+                <span className="text-base font-black text-slate-800">Lucro Líquido:</span>
+                <span className={`text-xl font-black ${netProfit >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
                     {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(netProfit)}
                 </span>
              </div>
           </div>
 
-          <button type="submit" className="w-full bg-[#920074] hover:bg-[#74005c] text-white font-bold py-4 rounded-xl shadow-lg transition transform active:scale-95">
+          <button type="submit" className="w-full bg-[#920074] hover:bg-[#74005c] text-white font-black py-4.5 rounded-[22px] shadow-xl shadow-purple-200 transition transform active:scale-[0.98] text-lg mt-1">
             Finalizar Venda
           </button>
         </form>
